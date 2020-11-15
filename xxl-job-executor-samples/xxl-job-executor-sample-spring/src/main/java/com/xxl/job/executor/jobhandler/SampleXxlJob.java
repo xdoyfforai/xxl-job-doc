@@ -1,4 +1,4 @@
-package com.xxl.job.executor.service.jobhandler;
+package com.xxl.job.executor.jobhandler;
 
 import com.xxl.job.core.context.XxlJobHelper;
 import com.xxl.job.core.handler.annotation.XxlJob;
