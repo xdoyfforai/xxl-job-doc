@@ -24,7 +24,7 @@ public class XxlJobScheduler  {
         // init i18n
         initI18n();
 
-        // admin trigger pool start
+        // admin trigger pool start(初始化调度线程池)
         JobTriggerPoolHelper.toStart();
 
         // admin registry monitor run（执行器注册处理）
@@ -43,14 +43,45 @@ public class XxlJobScheduler  {
         //      2：执行任务失败报警逻辑（此处可定制其他报警方式），更新报警状态：1-无需告警、2-告警成功、3-告警失败
         JobFailMonitorHelper.getInstance().start();
 
-        // admin lose-monitor run ( depend on JobTriggerPoolHelper )
+        // admin lose-monitor run ( depend on JobTriggerPoolHelper )(任务完成处理)
+        // 启动一个线程每60秒对xxl_job_log表进行扫描，找出所有停留在 "运行中" 状态超过10min，且对应执行器心跳注册失败不在线的job，将其标记为失败
+        // 此类还提供了
         JobCompleteHelper.getInstance().start();
 
-        // admin log report start
+        // admin log report start(运行报表统计处理)
+        // 启动一个线程每1分钟对xxl_job_log表进行扫描
+        //      1：统计处当天及前两天运行job的成功失败情况，更新到xxl_job_log_report表中，以供前端页面使用
+        //      2：删除所有处于配置指定的log保存天数以前的log（每一天只会清理一次）
         JobLogReportHelper.getInstance().start();
 
-        // start-schedule  ( depend on JobTriggerPoolHelper )
+        // start-schedule  ( depend on JobTriggerPoolHelper )(核心调度处理，使用前面启动的调度线程池：JobTriggerPoolHelper)
+        // 启动一个线程每一整数秒执行如下操作（前一次操作时间大于一秒则不等待直接尝试下次调度）：
+        //      1：获取分布式锁，成功则继续
+        //      2：获取xxl_job_info表中所有已经启动(trigger_status=1)且下次触发时间<当前时间+5s的job信息(取不到则跳过本次调度(释放锁)，到下一个整数5秒继续尝试调度)
+        //          2.1：当前job触发时间过期5s以上->根据job的调度过期策略(misfire_strategy)选择忽略本次调度或者立即执行一次->刷新下次调度时间
+        //          2.2：当前job触发时间过期5s以内->直接触发一次->刷新下次调度时间（如果下一次调度的时间仍然在下五秒以内则加入时间轮然后再次刷新下次调度时间）
+        //          2.3：当前job触发时间在未来5s以内->加入时间轮->刷新下次调度时间
+        //      3：更新所有本次处理的job的调度信息（上次触发时间，下次触发时间，调度status）
+        //      4：释放分布式锁
+        //
+        // 启动时间轮线程在下一个整数秒后执行如下操作（每一秒执行一次）：
+        //      1：在时间轮map中拿到当前秒数以及前一秒数(防止执行时间过长跳刻度)的jobid列表，循环调度所有任务(交由JobTriggerPoolHelper通过线程池调度，提高调度效率)
         JobScheduleHelper.getInstance().start();
+
+        // 单个任务调度的具体逻辑：
+        //      1：任务调度由两个线程池完成fastTriggerPool和slowTriggerPool 如果在1min时间窗口内，某jobid对应的job调度花费的时间>500ms超过10次，
+        //          则交由slowTriggerPool来调度 避免对fastTriggerPool的调度能力形成拖累
+        //      2：具体调度逻辑交由XxlJobTrigger.trigger()来处理,该方法获取此次调度的任务信息jobinfo和执行此任务的执行器集群信息jobgroup，
+        //          若路由规则选择'分片广播',则对执行器集群下的所有节点进行任务调度，否则只选择一个节点调度，具体哪一个由路由策略决定
+        //      3：执行调度的内部方法XxlJobTrigger.processTrigger()
+        //          1: 在log表中插入一条新的数据来记录此次调度
+        //          2：生成TriggerParam 包括jobid handler名称 执行参数 阻塞处理策略 logid 分片广播参数等
+        //          3：确定调度的执行器地址 对于分片广播 根据方法参数(index,total)以及jobgroup中的addresslist确定，其他路由策略则由不同策略持有
+        //              的ExecutorRouter router来确定,router实现类在com.xxl.job.admin.core.route.strategy包下
+        //          4: 地址确定后，配合生成的TriggerParam由ExecutorBiz的实现类(ExecutorBizClient)执行远程调用,
+        //              ExecutorBizClient通过executorBizRepository缓存在ConcurrentHashMap中<address, ExecutorBizClient>
+        //          5: 根据远程调用成功与否，生成XxlJobLog对象 更新log表
+        // 至此 调度中心的调度过程结束
 
         logger.info(">>>>>>>>> init xxl-job admin success.");
     }
