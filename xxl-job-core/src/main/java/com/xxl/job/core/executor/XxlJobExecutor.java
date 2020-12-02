@@ -65,19 +65,29 @@ public class XxlJobExecutor  {
     public void start() throws Exception {
 
         // init logpath
+        // 初始化log文件目录
         XxlJobFileAppender.initLogPath(logPath);
 
         // init invoker, admin-client
+        // 根据配置文件信息将所有调度中心地址包装成AdminBizClient
         initAdminBizList(adminAddresses, accessToken);
 
 
         // init JobLogFileCleanThread
+        // 启动log文件清理线程，每一天执行一次，根据配置信息清理logRetentionDays天前的log（logRetentionDays<3不做清理操作）
         JobLogFileCleanThread.getInstance().start(logRetentionDays);
 
         // init TriggerCallbackThread
+        // 启动回调处理线程
         TriggerCallbackThread.getInstance().start();
 
         // init executor-server
+        // 启动内置server处理调度中心的远程调用
+        // 通过线程池来处理每次调用，具体任务执行由ExecutorBizImpl.run()方法将任务分发给相应的JobThread处理
+        // JobThread持有triggerQueue，相同的jobid都由此JobThread处理
+        //      1：阻塞处理策略为单机串行的情况下，任务直接进入队列
+        //      2：阻塞处理策略为丢弃后续调度的情况下，直接返回失败+对应message
+        //      3：阻塞处理策略为覆盖之前调度的情况下，丢弃老的(jobThread=null)，重新生成JobThread并将任务加入队列
         initEmbedServer(address, ip, port, appname, accessToken);
     }
     public void destroy(){
