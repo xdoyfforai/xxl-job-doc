@@ -78,7 +78,9 @@ public class XxlJobExecutor  {
         JobLogFileCleanThread.getInstance().start(logRetentionDays);
 
         // init TriggerCallbackThread
-        // 启动回调处理线程
+        // 启动回调处理线程，回调线程持有一个保存回调参数的阻塞队列，每个任务执行完成后都会向此队列中入列一个回调参数对象(HandleCallbackParam)
+        // 此线程获取回调参数，对调度中心发起api调用(http)，将回调参数对象的列表通过RequestBody发送到调度中心,调度中心根据回调参数，更新job_log表
+        // 以便获取执行器执行成功或失败的状态
         TriggerCallbackThread.getInstance().start();
 
         // init executor-server
