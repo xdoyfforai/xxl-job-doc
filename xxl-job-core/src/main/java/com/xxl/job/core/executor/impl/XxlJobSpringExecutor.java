@@ -34,15 +34,18 @@ public class XxlJobSpringExecutor extends XxlJobExecutor implements ApplicationC
     public void afterSingletonsInstantiated() {
 
         // init JobHandler Repository
+        // 将spring工厂中的所有IJobHandler的子类实现(@JobHandler)注册到jobHandlerRepository中
         initJobHandlerRepository(applicationContext);
 
         // init JobHandler Repository (for method)
+        // 将所有使用@XxlJob注解标注的方法包装成MethodJobHandler(IJobHandler的实现类)注册到jobHandlerRepository中
         initJobHandlerMethodRepository(applicationContext);
 
         // refresh GlueFactory
         GlueFactory.refreshInstance(1);
 
         // super start
+        // 执行器核心处理逻辑
         try {
             super.start();
         } catch (Exception e) {
